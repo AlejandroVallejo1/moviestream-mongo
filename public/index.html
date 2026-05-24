@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MovieStream Mongo</title>
+<style>
+  body { font-family: -apple-system, system-ui, sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; color: #222; }
+  h1 { margin-bottom: 4px; }
+  .sub { color: #666; margin-bottom: 24px; }
+  .tabs { display: flex; gap: 8px; border-bottom: 1px solid #ddd; margin-bottom: 20px; }
+  .tab { padding: 10px 14px; cursor: pointer; border: none; background: none; font-size: 15px; color: #555; }
+  .tab.active { color: #000; border-bottom: 2px solid #2563eb; font-weight: 600; }
+  .panel { display: none; }
+  .panel.active { display: block; }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+  input, select, button, textarea { padding: 8px 10px; font-size: 14px; border: 1px solid #ccc; border-radius: 6px; }
+  button { background: #2563eb; color: white; border: none; cursor: pointer; }
+  button:hover { background: #1e40af; }
+  button.secondary { background: #6b7280; }
+  button.danger { background: #dc2626; }
+  table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #eee; vertical-align: top; font-size: 14px; }
+  th { background: #f9fafb; }
+  .pill { background: #eef2ff; color: #3730a3; padding: 2px 8px; border-radius: 999px; font-size: 12px; margin-right: 4px; display: inline-block; }
+  .pill.actor { background: #f0fdf4; color: #166534; }
+  .modal-bg { position: fixed; top:0; left:0; right:0; bottom:0; background: rgba(0,0,0,0.4); display:none; align-items:center; justify-content:center; z-index: 10; }
+  .modal-bg.open { display: flex; }
+  .modal { background: white; padding: 24px; border-radius: 8px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto; }
+  .modal h2 { margin-top: 0; }
+  .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+  .form-grid label { display: flex; flex-direction: column; font-size: 13px; color: #444; }
+  .form-grid input, .form-grid select { margin-top: 4px; }
+  .full { grid-column: 1 / -1; }
+  .multi { min-height: 100px; }
+  .small { font-size: 12px; color: #888; }
+  .actions { display: flex; gap: 6px; }
+  .err { color: #dc2626; font-size: 13px; margin: 8px 0; }
+  .cast-row { display: flex; gap: 6px; margin-bottom: 4px; }
+  .cast-row select { flex: 1; }
+  .cast-row input { flex: 1; }
+</style>
+</head>
+<body>
+<h1>MovieStream Mongo</h1>
+<p class="sub">CRUD sobre el modelo documental de MovieStream. Datos vivos en MongoDB Atlas.</p>
+
+<div class="tabs">
+  <button class="tab active" data-tab="movies">Movies</button>
+  <button class="tab" data-tab="users">Users</button>
+  <button class="tab" data-tab="genres">Genres</button>
+</div>
+
+<!-- MOVIES -->
+<div id="panel-movies" class="panel active">
+  <div class="row">
+    <input id="m-search" placeholder="Search title..." />
+    <select id="m-filter-genre"><option value="">All genres</option></select>
+    <button onclick="loadMovies()">Search</button>
+    <button class="secondary" onclick="openMovieModal()">+ New Movie</button>
+  </div>
+  <table>
+    <thead><tr><th>Title</th><th>Year</th><th>Genres</th><th>Cast</th><th>Rating</th><th>Price</th><th></th></tr></thead>
+    <tbody id="movies-tbody"></tbody>
+  </table>
+</div>
+
+<!-- USERS -->
+<div id="panel-users" class="panel">
+  <div class="row">
+    <input id="u-search" placeholder="Search name or email..." />
+    <button onclick="loadUsers()">Search</button>
+    <button class="secondary" onclick="openUserModal()">+ New User</button>
+  </div>
+  <table>
+    <thead><tr><th>Name</th><th>Email</th><th>Country</th><th>Segment</th><th>Interactions</th><th></th></tr></thead>
+    <tbody id="users-tbody"></tbody>
+  </table>
+</div>
+
+<!-- GENRES -->
+<div id="panel-genres" class="panel">
+  <div class="row">
+    <button class="secondary" onclick="openGenreModal()">+ New Genre</button>
+  </div>
+  <table>
+    <thead><tr><th>Name</th><th>Short</th><th>Description</th><th></th></tr></thead>
+    <tbody id="genres-tbody"></tbody>
+  </table>
+</div>
+
+<!-- MODALS -->
+<div id="modal-movie" class="modal-bg">
+  <div class="modal">
+    <h2 id="movie-modal-title">New Movie</h2>
+    <div class="form-grid">
+      <label>Title<input id="mv-title" /></label>
+      <label>Year<input id="mv-year" type="number" /></label>
+      <label>Runtime (min)<input id="mv-runtime" type="number" /></label>
+      <label>Price<input id="mv-price" type="number" step="0.01" /></label>
+      <label class="full">Genres (hold cmd/ctrl to select multiple)
+        <select id="mv-genres" multiple class="multi"></select>
+      </label>
+      <div class="full">
+        <label>Cast</label>
+        <div id="mv-cast"></div>
+        <button class="secondary" type="button" onclick="addCastRow()">+ Add actor</button>
+      </div>
+    </div>
+    <div id="mv-err" class="err"></div>
+    <div class="actions">
+      <button onclick="saveMovie()">Save</button>
+      <button class="secondary" onclick="closeModal('modal-movie')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-user" class="modal-bg">
+  <div class="modal">
+    <h2 id="user-modal-title">New User</h2>
+    <div class="form-grid">
+      <label>First name<input id="u-first" /></label>
+      <label>Last name<input id="u-last" /></label>
+      <label class="full">Email<input id="u-email" /></label>
+      <label>Country<input id="u-country" /></label>
+      <label>Segment name<input id="u-seg-name" placeholder="Young People" /></label>
+      <label>Segment short<input id="u-seg-short" placeholder="YP" /></label>
+    </div>
+    <hr/>
+    <div id="u-interactions-section" style="display:none">
+      <h3>Interactions</h3>
+      <div id="u-interactions-list"></div>
+      <div class="row">
+        <select id="u-add-movie"></select>
+        <select id="u-add-type"><option>view</option><option>rating</option><option>purchase</option></select>
+        <input id="u-add-rating" type="number" min="1" max="5" placeholder="rating 1-5" style="width:120px"/>
+        <button onclick="addInteraction()">Add</button>
+      </div>
+    </div>
+    <div id="u-err" class="err"></div>
+    <div class="actions">
+      <button onclick="saveUser()">Save</button>
+      <button class="secondary" onclick="closeModal('modal-user')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal-genre" class="modal-bg">
+  <div class="modal">
+    <h2 id="genre-modal-title">New Genre</h2>
+    <div class="form-grid">
+      <label>Name<input id="g-name" /></label>
+      <label>Short<input id="g-short" /></label>
+      <label class="full">Description<input id="g-desc" /></label>
+    </div>
+    <div id="g-err" class="err"></div>
+    <div class="actions">
+      <button onclick="saveGenre()">Save</button>
+      <button class="secondary" onclick="closeModal('modal-genre')">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<script>
+let editingMovie = null;
+let editingUser = null;
+let editingGenre = null;
+let allGenres = [];
+let allActors = [];
+let allMovies = [];
+
+// ---- tabs ----
+document.querySelectorAll('.tab').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    document.getElementById('panel-' + t.dataset.tab).classList.add('active');
+  };
+});
+
+function closeModal(id) { document.getElementById(id).classList.remove('open'); }
+function openModal(id)  { document.getElementById(id).classList.add('open'); }
+
+// ---- bootstrap ----
+async function init() {
+  await Promise.all([loadGenres(), loadActors(), loadMovies(), loadUsers()]);
+}
+
+async function loadGenres() {
+  const r = await fetch('/api/genres');
+  allGenres = await r.json();
+  const tbody = document.getElementById('genres-tbody');
+  tbody.innerHTML = allGenres.map(g => `
+    <tr>
+      <td>${escapeHtml(g.name)}</td>
+      <td>${escapeHtml(g.short_name || '')}</td>
+      <td>${escapeHtml(g.description || '')}</td>
+      <td class="actions">
+        <button class="secondary" onclick="editGenre('${g._id}')">Edit</button>
+        <button class="danger" onclick="deleteGenre('${g._id}')">Del</button>
+      </td>
+    </tr>
+  `).join('');
+  // populate genre filters & form
+  const filter = document.getElementById('m-filter-genre');
+  filter.innerHTML = '<option value="">All genres</option>' + allGenres.map(g => `<option value="${g._id}">${escapeHtml(g.name)}</option>`).join('');
+  const mvg = document.getElementById('mv-genres');
+  mvg.innerHTML = allGenres.map(g => `<option value="${g._id}">${escapeHtml(g.name)}</option>`).join('');
+}
+
+async function loadActors() {
+  const r = await fetch('/api/actors');
+  allActors = await r.json();
+}
+
+async function loadMovies() {
+  const q = document.getElementById('m-search').value;
+  const genre = document.getElementById('m-filter-genre').value;
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  if (genre) params.set('genre', genre);
+  const r = await fetch('/api/movies?' + params);
+  allMovies = await r.json();
+  const tbody = document.getElementById('movies-tbody');
+  tbody.innerHTML = allMovies.map(m => `
+    <tr>
+      <td><strong>${escapeHtml(m.title)}</strong></td>
+      <td>${m.year ?? ''}</td>
+      <td>${(m.genres||[]).map(g => `<span class="pill">${escapeHtml(g.name)}</span>`).join('')}</td>
+      <td>${(m.cast||[]).map(c => `<span class="pill actor">${escapeHtml(c.name)}${c.character ? ' as ' + escapeHtml(c.character) : ''}</span>`).join('')}</td>
+      <td>${m.avg_rating ?? '-'}${m.ratings_count ? ` (${m.ratings_count})` : ''}</td>
+      <td>$${(m.list_price||0).toFixed(2)}</td>
+      <td class="actions">
+        <button class="secondary" onclick="editMovie('${m._id}')">Edit</button>
+        <button class="danger" onclick="deleteMovie('${m._id}')">Del</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function loadUsers() {
+  const q = document.getElementById('u-search').value;
+  const params = new URLSearchParams();
+  if (q) params.set('q', q);
+  const r = await fetch('/api/users?' + params);
+  const users = await r.json();
+  const tbody = document.getElementById('users-tbody');
+  tbody.innerHTML = users.map(u => `
+    <tr>
+      <td><strong>${escapeHtml(u.first_name)} ${escapeHtml(u.last_name || '')}</strong></td>
+      <td>${escapeHtml(u.email || '')}</td>
+      <td>${escapeHtml(u.country || '')}</td>
+      <td>${escapeHtml(u.segment?.name || '')}</td>
+      <td>${(u.interactions||[]).length} <span class="small">${(u.interactions||[]).slice(0,2).map(i => i.type + (i.rating ? ' '+i.rating+'★' : '') + ' ' + escapeHtml(i.movie_title)).join(', ')}</span></td>
+      <td class="actions">
+        <button class="secondary" onclick="editUser('${u._id}')">Edit</button>
+        <button class="danger" onclick="deleteUser('${u._id}')">Del</button>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ---- MOVIE modal ----
+function openMovieModal() {
+  editingMovie = null;
+  document.getElementById('movie-modal-title').textContent = 'New Movie';
+  ['mv-title','mv-year','mv-runtime','mv-price'].forEach(id => document.getElementById(id).value = '');
+  [...document.getElementById('mv-genres').options].forEach(o => o.selected = false);
+  document.getElementById('mv-cast').innerHTML = '';
+  document.getElementById('mv-err').textContent = '';
+  openModal('modal-movie');
+}
+
+function addCastRow(actorId='', character='') {
+  const div = document.createElement('div');
+  div.className = 'cast-row';
+  div.innerHTML = `
+    <select>
+      <option value="">-- actor --</option>
+      ${allActors.map(a => `<option value="${a._id}" ${a._id===actorId?'selected':''}>${escapeHtml(a.name)}</option>`).join('')}
+    </select>
+    <input placeholder="character" value="${escapeHtml(character)}" />
+    <button class="danger" type="button" onclick="this.parentElement.remove()">x</button>
+  `;
+  document.getElementById('mv-cast').appendChild(div);
+}
+
+async function editMovie(id) {
+  const r = await fetch('/api/movies/' + id);
+  const m = await r.json();
+  editingMovie = id;
+  document.getElementById('movie-modal-title').textContent = 'Edit Movie';
+  document.getElementById('mv-title').value = m.title || '';
+  document.getElementById('mv-year').value = m.year || '';
+  document.getElementById('mv-runtime').value = m.runtime_min || '';
+  document.getElementById('mv-price').value = m.list_price || '';
+  const sel = document.getElementById('mv-genres');
+  const gids = new Set((m.genres||[]).map(g => g._id));
+  [...sel.options].forEach(o => o.selected = gids.has(o.value));
+  document.getElementById('mv-cast').innerHTML = '';
+  (m.cast||[]).forEach(c => addCastRow(c._id, c.character || ''));
+  document.getElementById('mv-err').textContent = '';
+  openModal('modal-movie');
+}
+
+async function saveMovie() {
+  const body = {
+    title: document.getElementById('mv-title').value,
+    year: document.getElementById('mv-year').value,
+    runtime_min: document.getElementById('mv-runtime').value,
+    list_price: document.getElementById('mv-price').value,
+    genre_ids: [...document.getElementById('mv-genres').selectedOptions].map(o => o.value),
+    cast: [...document.querySelectorAll('#mv-cast .cast-row')].map(row => ({
+      actor_id: row.querySelector('select').value,
+      character: row.querySelector('input').value,
+    })).filter(c => c.actor_id),
+  };
+  const url = editingMovie ? '/api/movies/' + editingMovie : '/api/movies';
+  const method = editingMovie ? 'PUT' : 'POST';
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) {
+    const e = await r.json();
+    document.getElementById('mv-err').textContent = e.error || 'error';
+    return;
+  }
+  closeModal('modal-movie');
+  loadMovies();
+}
+
+async function deleteMovie(id) {
+  if (!confirm('Delete this movie? It will also be removed from any user history.')) return;
+  await fetch('/api/movies/' + id, { method: 'DELETE' });
+  loadMovies();
+}
+
+// ---- USER modal ----
+function openUserModal() {
+  editingUser = null;
+  document.getElementById('user-modal-title').textContent = 'New User';
+  ['u-first','u-last','u-email','u-country','u-seg-name','u-seg-short'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('u-interactions-section').style.display = 'none';
+  document.getElementById('u-err').textContent = '';
+  openModal('modal-user');
+}
+
+async function editUser(id) {
+  const r = await fetch('/api/users/' + id);
+  const u = await r.json();
+  editingUser = id;
+  document.getElementById('user-modal-title').textContent = 'Edit User';
+  document.getElementById('u-first').value = u.first_name || '';
+  document.getElementById('u-last').value = u.last_name || '';
+  document.getElementById('u-email').value = u.email || '';
+  document.getElementById('u-country').value = u.country || '';
+  document.getElementById('u-seg-name').value = u.segment?.name || '';
+  document.getElementById('u-seg-short').value = u.segment?.short_name || '';
+  document.getElementById('u-interactions-section').style.display = 'block';
+  renderInteractions(u.interactions || []);
+  // populate movie select
+  document.getElementById('u-add-movie').innerHTML = allMovies.map(m => `<option value="${m._id}">${escapeHtml(m.title)}</option>`).join('');
+  document.getElementById('u-err').textContent = '';
+  openModal('modal-user');
+}
+
+function renderInteractions(list) {
+  document.getElementById('u-interactions-list').innerHTML = list.map((i, idx) => `
+    <div class="row" style="align-items:center; border-bottom:1px solid #eee; padding:6px 0;">
+      <span class="pill">${i.type}</span>
+      <span>${escapeHtml(i.movie_title)}</span>
+      ${i.rating ? `<span>${i.rating}★</span>` : ''}
+      ${i.price ? `<span>$${i.price}</span>` : ''}
+      <span class="small">${new Date(i.at).toLocaleDateString()}</span>
+      <button class="danger" onclick="removeInteraction(${idx})">x</button>
+    </div>
+  `).join('') || '<div class="small">No interactions yet.</div>';
+}
+
+async function addInteraction() {
+  if (!editingUser) return;
+  const body = {
+    movie_id: document.getElementById('u-add-movie').value,
+    type: document.getElementById('u-add-type').value,
+    rating: document.getElementById('u-add-rating').value || null,
+  };
+  const r = await fetch(`/api/users/${editingUser}/interactions`, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  if (!r.ok) return;
+  const u = await (await fetch('/api/users/' + editingUser)).json();
+  renderInteractions(u.interactions || []);
+  loadMovies();
+}
+
+async function removeInteraction(idx) {
+  if (!editingUser) return;
+  await fetch(`/api/users/${editingUser}/interactions/${idx}`, { method: 'DELETE' });
+  const u = await (await fetch('/api/users/' + editingUser)).json();
+  renderInteractions(u.interactions || []);
+}
+
+async function saveUser() {
+  const body = {
+    first_name: document.getElementById('u-first').value,
+    last_name: document.getElementById('u-last').value,
+    email: document.getElementById('u-email').value,
+    country: document.getElementById('u-country').value,
+    segment_name: document.getElementById('u-seg-name').value,
+    segment_short: document.getElementById('u-seg-short').value,
+  };
+  const url = editingUser ? '/api/users/' + editingUser : '/api/users';
+  const method = editingUser ? 'PUT' : 'POST';
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) {
+    const e = await r.json();
+    document.getElementById('u-err').textContent = e.error || 'error';
+    return;
+  }
+  closeModal('modal-user');
+  loadUsers();
+}
+
+async function deleteUser(id) {
+  if (!confirm('Delete this user?')) return;
+  await fetch('/api/users/' + id, { method: 'DELETE' });
+  loadUsers();
+}
+
+// ---- GENRE modal ----
+function openGenreModal() {
+  editingGenre = null;
+  document.getElementById('genre-modal-title').textContent = 'New Genre';
+  ['g-name','g-short','g-desc'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('g-err').textContent = '';
+  openModal('modal-genre');
+}
+
+function editGenre(id) {
+  const g = allGenres.find(x => x._id === id);
+  if (!g) return;
+  editingGenre = id;
+  document.getElementById('genre-modal-title').textContent = 'Edit Genre';
+  document.getElementById('g-name').value = g.name || '';
+  document.getElementById('g-short').value = g.short_name || '';
+  document.getElementById('g-desc').value = g.description || '';
+  document.getElementById('g-err').textContent = '';
+  openModal('modal-genre');
+}
+
+async function saveGenre() {
+  const body = {
+    name: document.getElementById('g-name').value,
+    short_name: document.getElementById('g-short').value,
+    description: document.getElementById('g-desc').value,
+  };
+  const url = editingGenre ? '/api/genres/' + editingGenre : '/api/genres';
+  const method = editingGenre ? 'PUT' : 'POST';
+  const r = await fetch(url, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  if (!r.ok) {
+    const e = await r.json();
+    document.getElementById('g-err').textContent = e.error || 'error';
+    return;
+  }
+  closeModal('modal-genre');
+  loadGenres();
+  loadMovies();
+}
+
+async function deleteGenre(id) {
+  let r = await fetch('/api/genres/' + id, { method: 'DELETE' });
+  if (r.status === 409) {
+    const e = await r.json();
+    if (!confirm(`Genre is referenced by ${e.count} movie(s). Remove from those movies and delete anyway?`)) return;
+    r = await fetch('/api/genres/' + id + '?force=1', { method: 'DELETE' });
+  }
+  if (r.ok) { loadGenres(); loadMovies(); }
+}
+
+function escapeHtml(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+init();
+</script>
+</body>
+</html>

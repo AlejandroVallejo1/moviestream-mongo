@@ -2,7 +2,7 @@
 
 Traducción del dominio MovieStream (que en el curso modelamos en Oracle relacional) a un modelo documental en MongoDB, con una app web mínima para hacer CRUD sobre los datos.
 
-App pública desplegada: **(ver liga al final, se actualiza al hacer el deploy)**
+App pública: **https://moviestream-mongo-eight.vercel.app**
 
 ![App funcionando](./screenshot.png)
 
